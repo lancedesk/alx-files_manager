@@ -3,9 +3,13 @@ const fs = require('fs');
 const path = require('path');
 const imageThumbnail = require('image-thumbnail');
 const dbClient = require('./utils/db');
+const nodemailer = require('nodemailer');
 
+// Initialize Bull queues
 const fileQueue = new Bull('fileQueue');
+const userQueue = new Bull('userQueue');
 
+// File processing queue
 fileQueue.process(async (job) => {
     const { userId, fileId } = job.data;
 
@@ -32,3 +36,26 @@ fileQueue.on('completed', (job, result) => {
 fileQueue.on('failed', (job, err) => {
     console.log(`Job ${job.id} failed: ${err.message}`);
 });
+
+// User welcome email queue
+userQueue.process(async (job) => {
+    const { userId } = job.data;
+
+    if (!userId) throw new Error('Missing userId');
+
+    const user = await dbClient.db.collection('users').findOne({ _id: dbClient.ObjectId(userId) });
+    if (!user) throw new Error('User not found');
+
+    // Printing the welcome email to console
+    console.log(`Welcome ${user.email}!`);
+});
+
+userQueue.on('completed', (job, result) => {
+    console.log(`Job ${job.id} completed!`);
+});
+
+userQueue.on('failed', (job, err) => {
+    console.log(`Job ${job.id} failed: ${err.message}`);
+});
+
+module.exports = { fileQueue, userQueue };
