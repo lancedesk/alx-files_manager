@@ -1,4 +1,4 @@
-import router from './routes';
+const routes = require('./routes/index');
 
 // Create an Express application
 const express = require('express');
@@ -13,11 +13,9 @@ const PORT = Number(process.env.PORT) || 5000;
 app.use(express.json());
 
 // Use the routes defined in routes/index.js
-app.use('/', router);
+app.use('/', routes);
 
 // Start the server
 app.listen(port, () => {
   console.log(`App listening to port ${PORT}`);
 });
-
-export default app;
