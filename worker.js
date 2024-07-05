@@ -1,61 +1,45 @@
-const Bull = require('bull');
-const fs = require('fs');
-const path = require('path');
-const imageThumbnail = require('image-thumbnail');
-const dbClient = require('./utils/db');
-const nodemailer = require('nodemailer');
+import DBClient from './utils/db';
 
-// Initialize Bull queues
+const Bull = require('bull');
+const { ObjectId } = require('mongodb');
+const imageThumbnail = require('image-thumbnail');
+const fs = require('fs');
+
 const fileQueue = new Bull('fileQueue');
 const userQueue = new Bull('userQueue');
 
-// File processing queue
+const createImageThumbnail = async (path, options) => {
+  try {
+    const thumbnail = await imageThumbnail(path, options);
+    const pathNail = `${path}_${options.width}`;
+
+    await fs.writeFileSync(pathNail, thumbnail);
+  } catch (error) {
+    console.log(error);
+  }
+};
+
 fileQueue.process(async (job) => {
-    const { userId, fileId } = job.data;
+  const { fileId } = job.data;
+  if (!fileId) throw Error('Missing fileId');
 
-    if (!fileId) throw new Error('Missing fileId');
-    if (!userId) throw new Error('Missing userId');
+  const { userId } = job.data;
+  if (!userId) throw Error('Missing userId');
 
-    const file = await dbClient.db.collection('files').findOne({ _id: fileId, userId });
-    if (!file) throw new Error('File not found');
+  const fileDocument = await DBClient.db.collection('files').findOne({ _id: ObjectId(fileId), userId: ObjectId(userId) });
+  if (!fileDocument) throw Error('File not found');
 
-    const sizes = [500, 250, 100];
-    const fileData = fs.readFileSync(file.localPath);
-
-    for (const size of sizes) {
-        const thumbnail = await imageThumbnail(fileData, { width: size });
-        const thumbnailPath = `${file.localPath}_${size}`;
-        fs.writeFileSync(thumbnailPath, thumbnail);
-    }
+  createImageThumbnail(fileDocument.localPath, { width: 500 });
+  createImageThumbnail(fileDocument.localPath, { width: 250 });
+  createImageThumbnail(fileDocument.localPath, { width: 100 });
 });
 
-fileQueue.on('completed', (job, result) => {
-    console.log(`Job ${job.id} completed!`);
-});
-
-fileQueue.on('failed', (job, err) => {
-    console.log(`Job ${job.id} failed: ${err.message}`);
-});
-
-// User welcome email queue
 userQueue.process(async (job) => {
-    const { userId } = job.data;
+  const { userId } = job.data;
+  if (!userId) throw Error('Missing userId');
 
-    if (!userId) throw new Error('Missing userId');
+  const userDocument = await DBClient.db.collection('users').findOne({ _id: ObjectId(userId) });
+  if (!userDocument) throw Error('User not found');
 
-    const user = await dbClient.db.collection('users').findOne({ _id: dbClient.ObjectId(userId) });
-    if (!user) throw new Error('User not found');
-
-    // Printing the welcome email to console
-    console.log(`Welcome ${user.email}!`);
+  console.log(`Welcome ${userDocument.email}`);
 });
-
-userQueue.on('completed', (job, result) => {
-    console.log(`Job ${job.id} completed!`);
-});
-
-userQueue.on('failed', (job, err) => {
-    console.log(`Job ${job.id} failed: ${err.message}`);
-});
-
-module.exports = { fileQueue, userQueue };
