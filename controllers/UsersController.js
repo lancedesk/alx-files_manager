@@ -1,51 +1,92 @@
-import sha1 from 'sha1';
-import Queue from 'bull';
-import { ObjectId } from 'mongodb';
-import dbClient from '../utils/db';
-import getIdAndKey from '../utils/users';
+// Import necessary modules
+const dbClient = require('../utils/db');
+const redisClient = require('../utils/redis');
+const userQueue = require('../worker');
+const bcrypt = require('bcrypt');
 
-const userQ = new Queue('userQ');
-
+// UsersController class definition
 class UsersController {
-  static async postNew(req, res) {
-    const { email, password } = req.body;
+    // POST /users endpoint
+    static async postNew(req, res) {
+        const { email, password } = req.body;
 
-    if (!email) return res.status(400).send({ error: 'Missing email' });
-    if (!password) return res.status(400).send({ error: 'Missing password' });
-    const emailExists = await dbClient.users.findOne({ email });
-    if (emailExists) return res.status(400).send({ error: 'Already exist' });
+        if (!email || !password) {
+            return res.status(400).json({ error: 'Missing email or password' });
+        }
 
-    const secPass = sha1(password);
+        const usersCollection = dbClient.db.collection('users');
+        const existingUser = await usersCollection.findOne({ email: email });
+        if (existingUser) {
+            return res.status(409).json({ error: 'User already exists' });
+        }
 
-    const insertStat = await dbClient.users.insertOne({
-      email,
-      password: secPass,
-    });
+        try {
+            const hashedPassword = await bcrypt.hash(password, 10); // Salt rounds = 10
+            const newUser = await usersCollection.insertOne({ email: email, password: hashedPassword });
+            return res.status(201).json({ id: newUser.insertedId, email: email });
+        } catch (error) {
+            console.error('Error creating user:', error);
+            return res.status(500).json({ error: 'Server error' });
+        }
+    }
 
-    const createdUser = {
-      id: insertStat.insertedId,
-      email,
-    };
+    // GET /users/me endpoint
+    static async getMe(req, res) {
+        const token = req.headers['x-token'];
+        if (!token) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
 
-    await userQ.add({
-      userId: insertStat.insertedId.toString(),
-    });
+        const tokenKey = `auth_${token}`;
+        const userId = await redisClient.get(tokenKey);
+        if (!userId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
 
-    return res.status(201).send(createdUser);
-  }
+        const usersCollection = dbClient.db.collection('users');
+        try {
+            const user = await usersCollection.findOne({ _id: dbClient.ObjectId(userId) });
+            if (!user) {
+                return res.status(401).json({ error: 'Unauthorized' });
+            }
+            return res.status(200).json({ id: user._id, email: user.email });
+        } catch (error) {
+            console.error('Error retrieving user:', error);
+            return res.status(500).json({ error: 'Server error' });
+        }
+    }
 
-  static async getMe(req, res) {
-    const { userId } = await getIdAndKey(req);
+    // POST /users endpoint to add user and send welcome email asynchronously
+    static async postUser(req, res) {
+        const { email, password } = req.body;
 
-    const user = await dbClient.users.findOne({ _id: ObjectId(userId) });
-    if (!user) return res.status(401).send({ error: 'Unauthorized' });
+        if (!email || !password) {
+            return res.status(400).json({ error: 'Missing email or password' });
+        }
 
-    const userInfo = { id: user._id, ...user };
-    delete userInfo._id;
-    delete userInfo.password;
+        try {
+            const hashedPassword = await bcrypt.hash(password, 10); // Salt rounds = 10
+            const newUser = {
+                email,
+                password: hashedPassword,
+            };
 
-    return res.status(200).send(userInfo);
-  }
+            const result = await dbClient.db.collection('users').insertOne(newUser);
+            const userId = result.insertedId;
+
+            // Add job to userQueue to send welcome email
+            userQueue.add({ userId });
+
+            return res.status(201).json({
+                id: userId,
+                email,
+            });
+        } catch (error) {
+            console.error('Error creating user:', error);
+            return res.status(500).json({ error: 'Server error' });
+        }
+    }
 }
 
-export default UsersController;
+// Export the UsersController
+module.exports = UsersController;
