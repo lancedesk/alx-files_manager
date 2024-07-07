@@ -1,66 +1,48 @@
-// Import Redis module
-const redis = require('redis');
+import { createClient } from 'redis';
+import { promisify } from 'util';
+
 
 // RedisClient class definition
 class RedisClient {
-    constructor() {
-        // Create a Redis client
-        this.client = redis.createClient();
+  constructor() {
+    // Create a Redis client
+    this.client = createClient();
 
-        // Handle Redis client errors
-        this.client.on('error', (err) => {
-            console.error('Redis client error:', err);
-        });
-    }
+    // Handle Redis client errors
+    this.client.on('error', (error) => {
+      console.log(error.message);
+    });
+  }
 
-    // Function to check if Redis connection is alive
-    isAlive() {
-        return this.client.connected;
+  // Function to check if Redis connection is alive
+  isAlive() {
+    if (this.client.ready) {
+      return true;
     }
+    return false;
+  }
 
-    // Asynchronous function to get value from Redis based on key
-    async get(key) {
-        return new Promise((resolve, reject) => {
-            this.client.get(key, (err, reply) => {
-                if (err) {
-                    console.error('Redis GET error:', err);
-                    resolve(null);
-                } else {
-                    resolve(reply);
-                }
-            });
-        });
-    }
+  // Asynchronous function to get value from Redis based on key
+  async get(key) {
+    const getAsync = promisify(this.client.get).bind(this.client);
+    const value = await getAsync(key);
+    return value;
+  }
 
-    // Asynchronous function to set value in Redis with expiration
-    async set(key, value, durationSeconds) {
-        return new Promise((resolve, reject) => {
-            this.client.set(key, value, 'EX', durationSeconds, (err, reply) => {
-                if (err) {
-                    console.error('Redis SET error:', err);
-                    resolve(false);
-                } else {
-                    resolve(true);
-                }
-            });
-        });
-    }
+  // Asynchronous function to set value in Redis with expiration
+  async set(key, value, duration) {
+    const setAsync = promisify(this.client.set).bind(this.client);
+    await setAsync(key, value, 'EX', duration);
+  }
 
-    // Asynchronous function to delete value from Redis based on key
-    async del(key) {
-        return new Promise((resolve, reject) => {
-            this.client.del(key, (err, reply) => {
-                if (err) {
-                    console.error('Redis DEL error:', err);
-                    resolve(false);
-                } else {
-                    resolve(true);
-                }
-            });
-        });
-    }
+  // Asynchronous function to delete value from Redis based on key
+  async del(key) {
+    const delAsync = promisify(this.client.del).bind(this.client);
+    await delAsync(key);
+  }
 }
 
 // Export an instance of RedisClient
 const redisClient = new RedisClient();
 module.exports = redisClient;
+export default redisClient;
