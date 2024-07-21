@@ -1,52 +1,60 @@
-// Import MongoDB module
 import { MongoClient } from 'mongodb';
 
-
-const HOST = process.env.DB_HOST || 'localhost';
-const PORT = process.env.BD_PORT || 27017;
-const DATABASE = process.env.DB_DATABASE || 'files_manager';
-const URI = `mongodb://${HOST}:${PORT}`;
-
 class DBClient {
-  // DBClient
+  /**
+   * Initializes a new instance of DBClient
+   */
   constructor() {
+    const HOST = process.env.DB_HOST || 'localhost';
+    const PORT = process.env.BD_PORT || 27017;
+    const DATABASE = process.env.DB_DATABASE || 'files_manager';
+    const URI = `mongodb://${HOST}:${PORT}`;
     this.mongoClient = new MongoClient(URI, { useUnifiedTopology: true });
     this.mongoClient.connect((error) => {
       if (!error) this.db = this.mongoClient.db(DATABASE);
     });
   }
 
-  //Function to check if MongoDB connection is alive
+  /**
+   * Check mongodb client's connection status
+   * @returns {boolean} mongoClient connection status
+   */
   isAlive() {
     return this.mongoClient.isConnected();
   }
 
-  // Collection retriever
+  /**
+   * Retrieves specified collection from database
+   * @returns {import("mongodb").Collection} - users collection object
+   */
   getCollection(collectionName) {
     const collection = this.db.collection(collectionName);
     return collection;
   }
 
-  // Asynchronous function to count documents in the 'users' collection
   async nbUsers() {
     const usersCollection = this.getCollection('users');
     const numberOfUsers = await usersCollection.countDocuments();
     return numberOfUsers;
   }
 
-  // Asynchronous function to count documents in the 'files' collection
+  /**
+   * Queries 'files' collection
+   * @returns {number} - number of documents in files collection
+   */
   async nbFiles() {
     const filesCollection = this.getCollection('files');
     const numberOfFiles = await filesCollection.countDocuments();
     return numberOfFiles;
   }
 
-  // Close database connection
+  /**
+   * Close mongodb client connection
+   */
   async close() {
     await this.mongoClient.close();
   }
 }
 
-// Export an instance of DBClient
 const dbClient = new DBClient();
 export default dbClient;
